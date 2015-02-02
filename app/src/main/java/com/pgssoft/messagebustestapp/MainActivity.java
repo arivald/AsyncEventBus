@@ -6,13 +6,13 @@ import android.os.Looper;
 import android.view.View;
 import android.widget.TextView;
 
-import com.pgssoft.asyncmessagebus.Bus;
-import com.pgssoft.asyncmessagebus.Subscribe;
+import com.pgssoft.async_event_bus.EventBus;
+import com.pgssoft.async_event_bus.Subscribe;
 
 
 public class MainActivity extends Activity implements View.OnClickListener {
 
-    static final Bus mBus = new Bus();
+    static final EventBus M_EVENT_BUS = new EventBus();
 
     TextView out;
 
@@ -32,7 +32,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         findViewById(R.id.post_delayed2).setOnClickListener(this);
 
         //register in bus
-        mBus.register(this);
+        M_EVENT_BUS.register(this);
 
     }
 
@@ -41,7 +41,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
     protected void onDestroy() {
         super.onDestroy();
         //not required, but good practice
-        mBus.unregister(this);
+        M_EVENT_BUS.unregister(this);
     }
 
     void appendTextToOut(final String text) {
@@ -66,32 +66,32 @@ public class MainActivity extends Activity implements View.OnClickListener {
 
             case R.id.post1:
                 appendTextToOut("Asynchronous posting: Event1\n");
-                mBus.post(new Event1());
+                M_EVENT_BUS.post(new Event1());
                 break;
 
             case R.id.post2:
                 appendTextToOut("Asynchronous posting: Event2\n");
-                mBus.post(new Event2());
+                M_EVENT_BUS.post(new Event2());
                 break;
 
             case R.id.send1:
                 appendTextToOut("Synchronous sending: Event1\n");
-                mBus.send(new Event1());
+                M_EVENT_BUS.send(new Event1());
                 break;
 
             case R.id.send2:
                 appendTextToOut("Synchronous sending: Event2\n");
-                mBus.send(new Event2());
+                M_EVENT_BUS.send(new Event2());
                 break;
 
             case R.id.post_delayed1:
                 appendTextToOut("Asynchronous delayed posting: Event1\n");
-                mBus.postDelayed(new Event1(), 2000);
+                M_EVENT_BUS.postDelayed(new Event1(), 2000);
                 break;
 
             case R.id.post_delayed2:
                 appendTextToOut("Asynchronous delayed posting: Event2\n");
-                mBus.postDelayed(new Event2(), 2000);
+                M_EVENT_BUS.postDelayed(new Event2(), 2000);
                 break;
         }
     }
@@ -109,7 +109,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
      Note: this will be called in dispatcher thread, if event was posted using Bus.post() or Bus.postdelayed(),
      or in sender thread, if event was send using Bus.send().
      */
-    @Subscribe(Bus.DeliveryThread.DISPATCHER)
+    @Subscribe(EventBus.DeliveryThread.DISPATCHER)
     void onEvent1_Short(Event1 event) {
         appendTextToOut("onEvent1_Short [thread: " + Thread.currentThread().getName() + "] event class: " + event.getClass().getSimpleName() + "\n");
     }
@@ -117,7 +117,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
     /*
      This will always be executed in background, unless Executor You passed to Bus choose differently.
      */
-    @Subscribe(Bus.DeliveryThread.BACKGROUND)
+    @Subscribe(EventBus.DeliveryThread.BACKGROUND)
     void onEvent1_LongBackground(Event1 event) throws InterruptedException {
         appendTextToOut("onEvent1_LongBackground [thread: " + Thread.currentThread().getName() + "] event class: " + event.getClass().getSimpleName() + "\n");
         int count = 4;
@@ -135,7 +135,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         appendTextToOut("onEvent2_Short [thread: " + Thread.currentThread().getName() + "] event class: " + event.getClass().getSimpleName() + "\n");
     }
 
-    @Subscribe(Bus.DeliveryThread.BACKGROUND)
+    @Subscribe(EventBus.DeliveryThread.BACKGROUND)
     void onEvent2_LongBackground(Event2 event) throws InterruptedException {
         appendTextToOut("onEvent2_LongBackground [thread: " + Thread.currentThread().getName() + "] event class: " + event.getClass().getSimpleName() + "\n");
         int count = 6;

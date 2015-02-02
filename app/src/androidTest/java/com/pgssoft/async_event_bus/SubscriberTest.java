@@ -1,10 +1,10 @@
-package com.pgssoft.asyncmessagebus;
+package com.pgssoft.async_event_bus;
 
 import android.test.InstrumentationTestCase;
 
-import com.pgssoft.asyncmessagebus.mock.TestEvent1;
-import com.pgssoft.asyncmessagebus.mock.TestEvent2;
-import com.pgssoft.asyncmessagebus.mock.TestTarget1;
+import com.pgssoft.async_event_bus.mock.TestEvent1;
+import com.pgssoft.async_event_bus.mock.TestEvent2;
+import com.pgssoft.async_event_bus.mock.TestTarget1;
 
 import java.lang.reflect.Method;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +31,7 @@ public class SubscriberTest extends InstrumentationTestCase {
 
     public void testConstructorAndHashCode() throws Exception {
 
+        EventBus bus = new EventBus("test");
         TestTarget1 testTarget1 = new TestTarget1();
         Method method = TestTarget1.class.getDeclaredMethod("onTestEvent1", TestEvent1.class);
 
@@ -67,7 +68,7 @@ public class SubscriberTest extends InstrumentationTestCase {
         //hash code must remain unchanged
         assertEquals(oldHashCode, subject.hashCode());
         //and deliverEvent should not try to deliver, nor throw.
-        subject.deliverEvent(new Object());
+        subject.deliverEvent(bus, new Object());
     }
 
     public void testEquality() throws Exception {
@@ -101,17 +102,19 @@ public class SubscriberTest extends InstrumentationTestCase {
 
     public void testEventDelivery() throws Exception {
 
+        EventBus bus = new EventBus("test");
+
         TestTarget1 testTarget1 = new TestTarget1();
         Method method = TestTarget1.class.getDeclaredMethod("onTestEvent1", TestEvent1.class);
         TestEvent1 testEvent1 = new TestEvent1();
         Subscriber subject = new Subscriber(testTarget1, method);
 
-        subject.deliverEvent(testEvent1);
+        subject.deliverEvent(bus, testEvent1);
 
         assertSame(testEvent1, testTarget1.lastReceivedEvent1);
 
         //try to deliver wrong event class
-        subject.deliverEvent(new TestEvent2());
+        subject.deliverEvent(bus, new TestEvent2());
     }
 
 

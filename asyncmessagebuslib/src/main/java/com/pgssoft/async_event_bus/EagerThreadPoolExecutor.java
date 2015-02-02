@@ -1,4 +1,4 @@
-package com.pgssoft.asyncmessagebus;
+package com.pgssoft.async_event_bus;
 
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;

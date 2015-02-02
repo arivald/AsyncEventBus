@@ -1,4 +1,4 @@
-package com.pgssoft.asyncmessagebus;
+package com.pgssoft.async_event_bus;
 
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -8,7 +8,6 @@ import android.support.annotation.Nullable;
 
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -16,7 +15,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
-import java.util.concurrent.*;
+import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -81,58 +83,60 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p/>
  * This class is safe for concurrent use.
  */
-@SuppressWarnings("UnusedDeclaration")
-public class Bus {
-    static final String TAG = "messagebus.Bus";
+public class EventBus {
 
     public enum DeliveryThread {
         /**
-         * The subscriber must be called in UI thread
+         * The subscriber will be called in UI thread
          */
         UI,
         /**
-         * The subscriber prefer to be called in background thread (random thread from pool)
+         * The subscriber prefer to be called in background thread (random thread from Executor pool)
          */
         BACKGROUND,
         /**
          * The subscriber prefer to be called in events dispatcher thread.
          * This is preferable for small and short subscribers.
+         * Note: If the sender choose to dispatch in his own thread (by calling the EventBus.send()),
+         * the subscriber will be called in the same thread.
          */
         DISPATCHER,
         /**
-         * The subscriber must be called in same thread that it registered itself to bus.
-         * The thread have to have associated {@link android.os.Looper} (Looper.myLooper() should not be null)
+         * The subscriber must be called in the same thread that it registered itself to the bus.
+         * The thread have to have an associated {@link android.os.Looper} (Looper.myLooper() should not be null)
          * at the time the register() is called.
          * If there is no {@link android.os.Looper}, this is equivalent of the DeliveryThread.BACKGROUND.
-         * if object is registered in UI thread, this is effectively equivalent of the Thread.UI.
+         * If object is registered in UI thread, this is effectively equivalent of the Thread.UI,
+         * because UI thread always have a Looper.
          * Best to ue with the {@link android.os.HandlerThread}.
+         * Note: this is the default delivery thread value for the @Subscribe annotation.
          */
         AS_REGISTERED,
     }
 
     /**
-     * Creates a new Bus named "default".
+     * Creates a new EventBus named "default".
      */
-    public Bus() {
-        this("unnamed");
+    public EventBus() {
+        this("default", null);
     }
 
     /**
-     * Creates a new Bus with the given {@code name}.
+     * Creates a new EventBus with the given {@code name}.
      *
      * @param name a brief name for this bus, for debugging purposes.
      */
-    public Bus(@NonNull String name) {
+    public EventBus(@NonNull String name) {
         this(name, null);
     }
 
     /**
-     * Creates a new Bus with the given {@code name}.
+     * Creates a new EventBus with the given {@code name} and Executor.
      *
      * @param name     a brief name for this bus, for debugging purposes.
      * @param executor executor to manage background threads. Pass null to use internal one.
      */
-    public Bus(@NonNull String name, @Nullable java.util.concurrent.Executor executor) {
+    public EventBus(@NonNull String name, @Nullable java.util.concurrent.Executor executor) {
         mName = name;
         new HandlerThread(toString() + ".dispatcher", android.os.Process.THREAD_PRIORITY_BACKGROUND) {
             @Override
@@ -141,44 +145,43 @@ public class Bus {
             }
         }.start();
 
-        if (executor != null)
+        if (executor != null) {
             mBackgroundExecutor = executor;
-        else
-            mBackgroundExecutor = new EagerThreadPoolExecutor(
-                    2, Math.max(2, Runtime.getRuntime().availableProcessors() * 2),
-                    10, TimeUnit.SECONDS,
-                    new ThreadFactory() {
-                        private final AtomicInteger mCount = new AtomicInteger(1);
+        } else {
+            if (mDefaultExecutor == null)
+                mDefaultExecutor = new EagerThreadPoolExecutor(
+                        2, Math.max(2, Runtime.getRuntime().availableProcessors() * 2),
+                        60, TimeUnit.SECONDS,
+                        new ThreadFactory() {
+                            private final AtomicInteger mCount = new AtomicInteger(1);
 
-                        @Override
-                        public Thread newThread(@NonNull Runnable r) {
-                            Thread thread = new Thread(r, "Bus.Background #" + mCount.getAndIncrement());
-                            thread.setPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
-                            return thread;
-                        }
-                    });
-
-        //wait for mDispatcherThreadHandler to be set
-        while (mDispatcherThreadHandler == null)
-
-        {
-            Thread.yield();
+                            @Override
+                            public Thread newThread(@NonNull Runnable r) {
+                                Thread thread = new Thread(r, "EventBus.Background #" + mCount.getAndIncrement());
+                                thread.setPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                                return thread;
+                            }
+                        });
+            mBackgroundExecutor = mDefaultExecutor;
         }
 
+        //wait for mDispatcherThreadHandler to be set
+        while (mDispatcherThreadHandler == null) {
+            Thread.yield();
+        }
     }
 
     /**
-     * Registers all subscriber methods on {@code object} to receive events.
-     * <p/>
+     * Registers all subscriber methods on {@code target} to receive events.
      *
-     * @param object @NonNull object whose subscriber methods should be registered.
+     * @param target @NonNull object whose subscriber methods should be registered.
      */
-    public void register(@NonNull Object object) {
+    public void register(@NonNull Object target) {
         Looper looper = Looper.myLooper();
         if (looper != null)
             synchronized (mTargetsLoopers) {
-                //assign Looper for obiect
-                mTargetsLoopers.put(object, new WeakReference<Looper>(looper));
+                //assign Looper for object
+                mTargetsLoopers.put(target, new WeakReference<Looper>(looper));
                 //create Handler for Looper, if it is not created yet.
                 if (mLoopersHandlers.get(looper) == null) {
                     mLoopersHandlers.put(looper,
@@ -189,25 +192,26 @@ public class Bus {
 
         //Key: event class
         //Value: set of Subscriber's that can handle this event class.
-        for (Map.Entry<Class<?>, Set<Subscriber>> entry : findAllSubscribers(object).entrySet()) {
+        for (Map.Entry<Class<?>, Set<Subscriber>> entry : findAllSubscribers(target).entrySet()) {
             getSubscribersForEventType(entry.getKey()).addAll(entry.getValue());
         }
     }
 
     /**
-     * Unregisters all subscriber methods on a registered {@code object}.
+     * Unregister all subscriber methods on a registered {@code target}.
      * While processing it will remove also all data for already garbage collected objects.
      *
-     * @param object @Nullable object whose subscriber methods should be unregistered.
+     * @param target @Nullable object whose subscriber methods should be unregistered.
      *               Pass null ro remove just garbage collected objects.
      */
-    public void unregister(@Nullable Object object) {
+    public void unregister(@Nullable Object target) {
         synchronized (mCurrentlyRegisteredSubscribersByEventType) {
-            for (Map.Entry<Class<?>, Set<Subscriber>> entry : mCurrentlyRegisteredSubscribersByEventType.entrySet()) {
-                Set<Subscriber> subscribers = entry.getValue();
+            for (Map.Entry<Class<?>, CopyOnWriteArraySet<Subscriber>> entry : mCurrentlyRegisteredSubscribersByEventType.entrySet()) {
+                CopyOnWriteArraySet<Subscriber> subscribers = entry.getValue();
                 for (Subscriber subscriber : subscribers) {
-                    Object target = subscriber.mTarget.get();
-                    if (target == null || target == object) {
+                    Object aTarget = subscriber.mTarget.get();
+                    //aTarget == null > target was GCed.
+                    if (aTarget == null || aTarget == target) {
                         subscribers.remove(subscriber);
                     }
                 }
@@ -239,14 +243,16 @@ public class Bus {
      * @param event  @NonNull event to post.
      * @param target @NonNull target to deliver event to. Target must be registered in bus already.
      * @throws NullPointerException if the event is null.
-     * todo unit test
+     *                              todo unit test
      */
     public void postToTarget(@NonNull final Object event, @NonNull Object target) {
         mDispatcherThreadHandler.post(Dispatcher.obtain(this, event, target));
     }
 
     /**
-     * Posts an event to all registered subscribers after given number of miliseconds.
+     * Posts an event to all registered subscribers after given number of miliseconds. Target must be
+     * registered after requested time passes, so it is possible to deliver to target that was not registered
+     * while postDelayed() was called.
      * This method will initiate posting process, and return immediately.
      * <p/>
      * If no subscribers have been subscribed for {@code event}'s class, and {@code event} is not already a
@@ -261,7 +267,9 @@ public class Bus {
     }
 
     /**
-     * Posts an event to all registered subscribers in one specific target object, after given number of milliseconds.
+     * Posts an event to all registered subscribers in one specific target object, after given number
+     * of milliseconds.Target must be registered after requested time passes, so it is possible to
+     * deliver to target that was not registered while postDelayed() was called.
      * This method will initiate posting process, and return immediately.
      * <p/>
      * If no subscribers have been subscribed for {@code event}'s class, and {@code event} is not already a
@@ -271,7 +279,7 @@ public class Bus {
      * @param target       @NonNull target to deliver event to. Target must be registered in bus already.
      * @param milliseconds delay in milliseconds
      * @throws NullPointerException if the event is null.
-     * todo unit test
+     *                              todo unit test
      */
     public void postToTargetDelayed(@NonNull final Object event, @NonNull Object target, long milliseconds) {
         mDispatcherThreadHandler.postDelayed(Dispatcher.obtain(this, event, target), milliseconds);
@@ -303,31 +311,51 @@ public class Bus {
      * @param event  @NonNull event to post.
      * @param target @NonNull target to deliver event to. Target must be registered in bus already.
      * @throws NullPointerException if the event is null.
-     * todo unit test
+     *                              todo unit test
      */
     public void sendToTarget(@NonNull final Object event, @NonNull Object target) {
         Dispatcher.obtain(this, event, target).run();
     }
 
+    //////////////////////////////////////////////////////////////////////////////////////////
+    // for descendants
+
+    /**
+     * Handles the given exception thrown by a subscriber with the given context.
+     */
+    protected void onSubscriberException(@NonNull Object target, @NonNull Method method, @NonNull Throwable exception) {
+        //by default just print it to log.
+        exception.printStackTrace();
+    }
 
     //////////////////////////////////////////////////////////////////////////////////////////
     // implementation
 
     /**
-     * Main, UI thread Handler.
+     * The UI thread Handler.
      * Some subscribers have to be called in this thread.
      * Object shared by all Bus instances, there is just one main thread anyway ;-).
      */
     static final Handler mUiThreadHandler = new Handler(Looper.getMainLooper());
 
     /**
-     * Thread for events processing.
-     * Event passed to post() will be processed in dispatcher thread, then delivered in this thread,
+     * A Thread for events processing.
+     * Event passed to post() methods will be processed in this thread, then delivered in this thread,
      * or background thread, or UI thread.
      */
     Handler mDispatcherThreadHandler;
 
-    java.util.concurrent.Executor mBackgroundExecutor;
+    /**
+     * Executor responsible for managing background threads.
+     */
+    @NonNull
+    final Executor mBackgroundExecutor;
+
+    /**
+     * one, shared instance of Executor, used as mBackgroundExecutor in case if application didn't provided any.
+     */
+    static Executor mDefaultExecutor;
+
 
     /**
      * Identifier used to differentiate the event bus instance.
@@ -338,14 +366,7 @@ public class Bus {
      * All registered subscribers, indexed by event type.
      * Inner Set is a CopyOnWriteArraySet.
      */
-    final Map<Class<?>, Set<Subscriber>> mCurrentlyRegisteredSubscribersByEventType = new HashMap<Class<?>, Set<Subscriber>>();
-
-    /**
-     * Cache for all classes/interfaces of given event class.
-     * Key: event class
-     * Value: set of classes/interfaces
-     */
-    final static Map<Class<?>, Set<Class<?>>> mEventClassHierarchyCache = new HashMap<Class<?>, Set<Class<?>>>();
+    final Map<Class<?>, CopyOnWriteArraySet<Subscriber>> mCurrentlyRegisteredSubscribersByEventType = new HashMap<Class<?>, CopyOnWriteArraySet<Subscriber>>();
 
     /**
      * target-to-looper map.
@@ -358,9 +379,9 @@ public class Bus {
     final static Map<Looper, Handler> mLoopersHandlers = new WeakHashMap<Looper, Handler>();
 
     @NonNull
-    Set<Subscriber> getSubscribersForEventType(Class<?> type) {
+    CopyOnWriteArraySet<Subscriber> getSubscribersForEventType(Class<?> type) {
         synchronized (mCurrentlyRegisteredSubscribersByEventType) {
-            Set<Subscriber> result = mCurrentlyRegisteredSubscribersByEventType.get(type);
+            CopyOnWriteArraySet<Subscriber> result = mCurrentlyRegisteredSubscribersByEventType.get(type);
             if (result == null) {
                 result = new CopyOnWriteArraySet<Subscriber>();
                 mCurrentlyRegisteredSubscribersByEventType.put(type, result);
@@ -370,26 +391,26 @@ public class Bus {
     }
 
     /**
-     * Cache event bus subscriber methods for each class.
-     * This will speed-up registering another objects of given class.
+     * Cache event bus subscriber methods for each registered class.
+     * This will speed-up registering another objects of given class with any EventBus instance.
      * <p/>
      * First key: listener class
      * Second key: event class
      * Value: set of Method's
      */
-    static final Map<Class<?>, Map<Class<?>, Set<Method>>> mSubscriberMethodsCache = new HashMap<Class<?>, Map<Class<?>, Set<Method>>>();
+    static final Map<Class<?>, Map<Class<?>, List<Method>>> mSubscriberMethodsCache = new HashMap<Class<?>, Map<Class<?>, List<Method>>>();
 
     @Override
     public String toString() {
-        return "messagebus[" + mName + "]";
+        return "EventBus[" + mName + "]";
     }
 
     /**
      * Load all methods annotated with {@link Subscribe} into their respective caches for the
      * specified class.
      */
-    static void scanForSubscriberMethods(@NonNull final Class<?> listenerClass) {
-        Map<Class<?>, Set<Method>> subscriberMethods = new HashMap<Class<?>, Set<Method>>();
+    static Map<Class<?>, List<Method>> scanForSubscriberMethods(@NonNull final Class<?> listenerClass) {
+        Map<Class<?>, List<Method>> result = new HashMap<Class<?>, List<Method>>();
 
         for (Method method : listenerClass.getDeclaredMethods()) {
             // The compiler sometimes creates synthetic bridge methods as part of the
@@ -407,17 +428,17 @@ public class Bus {
                 }
 
                 Class<?> eventType = parameterTypes[0];
-
-                Set<Method> methods = subscriberMethods.get(eventType);
+                List<Method> methods = result.get(eventType);
                 if (methods == null) {
-                    methods = new HashSet<Method>();
-                    subscriberMethods.put(eventType, methods);
+                    //most probably here would be 1 item only, no one register in one object many subscribers for same event...
+                    methods = new LinkedList<Method>();
+                    result.put(eventType, methods);
                 }
                 methods.add(method);
             }
         }
 
-        mSubscriberMethodsCache.put(listenerClass, subscriberMethods);
+        return result;
     }
 
     /**
@@ -427,59 +448,26 @@ public class Bus {
     @NonNull
     static Map<Class<?>, Set<Subscriber>> findAllSubscribers(@NonNull final Object listener) {
         Class<?> listenerClass = listener.getClass();
-        Map<Class<?>, Set<Subscriber>> subscribersByEventType = new HashMap<Class<?>, Set<Subscriber>>();
-
+        Map<Class<?>, List<Method>> methods;
         synchronized (mSubscriberMethodsCache) {
-            if (!mSubscriberMethodsCache.containsKey(listenerClass)) {
-                scanForSubscriberMethods(listenerClass);
-            }
-
-            //Key: event class
-            //Value: set of Subscriber's that can handle this event class.
-            Map<Class<?>, Set<Method>> methods = mSubscriberMethodsCache.get(listenerClass);
-            for (Map.Entry<Class<?>, Set<Method>> e : methods.entrySet()) {
-                Set<Subscriber> subscribers = new HashSet<Subscriber>();
-                for (Method m : e.getValue()) {
-                    subscribers.add(new Subscriber(listener, m));
-                }
-                subscribersByEventType.put(e.getKey(), subscribers);
-            }
-        }
-        return subscribersByEventType;
-    }
-
-    /**
-     * Get set of classes implemented by event object.
-     * This includes all super classes, all implemented interfaces, and all interfaces of superclasses.
-     */
-    @NonNull
-    static Set<Class<?>> getEventClasses(@NonNull final Object event) {
-        Class<?> eventClass = event.getClass();
-        Set<Class<?>> classes;
-        synchronized (mEventClassHierarchyCache) {
-            classes = mEventClassHierarchyCache.get(eventClass);
-        }
-        if (classes == null) {
-            classes = new HashSet<Class<?>>();
-            List<Class<?>> parents = new LinkedList<Class<?>>();
-            parents.add(eventClass);
-
-            while (!parents.isEmpty()) {
-                Class<?> clazz = parents.remove(0);
-                classes.add(clazz);
-
-                Class<?> parent = clazz.getSuperclass();
-                if (parent != null) {
-                    parents.add(parent);
-                }
-                Collections.addAll(classes, clazz.getInterfaces());
-            }
-            synchronized (mEventClassHierarchyCache) {
-                mEventClassHierarchyCache.put(eventClass, classes);
+            methods = mSubscriberMethodsCache.get(listenerClass);
+            if (methods == null) {
+                methods = scanForSubscriberMethods(listenerClass);
+                mSubscriberMethodsCache.put(listenerClass, methods);
             }
         }
 
-        return classes;
+        Map<Class<?>, Set<Subscriber>> result = new HashMap<Class<?>, Set<Subscriber>>();
+        //Key: event class
+        //Value: set of @Subscribe methods that can handle this event class.
+        for (Map.Entry<Class<?>, List<Method>> e : methods.entrySet()) {
+            Set<Subscriber> subscribers = new HashSet<Subscriber>();
+            for (Method m : e.getValue()) {
+                subscribers.add(new Subscriber(listener, m));
+            }
+            result.put(e.getKey(), subscribers);
+        }
+        return result;
     }
 
 
@@ -489,22 +477,11 @@ public class Bus {
      */
     @Nullable
     static Handler getHandlerForTarget(@NonNull Object target) {
-        WeakReference<Looper> ref = mTargetsLoopers.get(target);
-        if (ref == null) return null;
-        //thread safety: first get solid reference, THEN check for null.
-        Looper looper = ref.get();
-        if (looper == null) return null;
-        return mLoopersHandlers.get(looper);
-    }
-
-    /**
-     * Executes Runnable on mBackgroundExecutor.
-     * If mBackgroundExecutor is not set, creates instance of EagerThreadPoolExecutor(true, 2, 8, 10, TimeUnit.SECONDS, internal thread factory)
-     *
-     * @param runnable Runnable to execute
-     */
-    void executeInBackground(Runnable runnable) {
-        mBackgroundExecutor.execute(runnable);
+        synchronized (mTargetsLoopers) {
+            WeakReference<Looper> ref = mTargetsLoopers.get(target);
+            if (ref == null) return null;
+            return mLoopersHandlers.get(ref.get());
+        }
     }
 
 }

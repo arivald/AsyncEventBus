@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.pgssoft.asyncmessagebus;
+package com.pgssoft.async_event_bus;
 
 import android.support.annotation.NonNull;
 
@@ -28,7 +28,7 @@ import android.support.annotation.NonNull;
 public class DeadEvent {
 
     @NonNull
-    public final Bus source;
+    public final EventBus source;
     @NonNull
     public final Object event;
 
@@ -39,7 +39,7 @@ public class DeadEvent {
      * @param source bus processing the DeadEvent.
      * @param event  the event that could not be delivered.
      */
-    /*package*/ DeadEvent(@NonNull Bus source, @NonNull Object event) {
+    /*package*/ DeadEvent(@NonNull EventBus source, @NonNull Object event) {
         this.source = source;
         this.event = event;
     }

@@ -1,7 +1,7 @@
-package com.pgssoft.asyncmessagebus.mock;
+package com.pgssoft.async_event_bus.mock;
 
-import com.pgssoft.asyncmessagebus.Bus;
-import com.pgssoft.asyncmessagebus.Subscribe;
+import com.pgssoft.async_event_bus.EventBus;
+import com.pgssoft.async_event_bus.Subscribe;
 import com.pgssoft.messagebustestapp.Event1;
 
 import java.util.ArrayList;
@@ -20,18 +20,29 @@ import java.util.List;
  *
  * I choose Event1 as base, because it is no-code class.
  */
+@SuppressWarnings("UnusedDeclaration")
 public class TestTarget2 extends Event1 {
     public List<Object> eventsDispatcher = new ArrayList<Object>();
     public List<Object> eventsUI = new ArrayList<Object>();
 
-    @Subscribe(Bus.DeliveryThread.DISPATCHER)
+    @Subscribe(EventBus.DeliveryThread.DISPATCHER)
     public void onTestEvent1Dis(TestEvent1 event) {
         eventsDispatcher.add(event);
     }
 
-    @Subscribe(Bus.DeliveryThread.UI)
+    @Subscribe(EventBus.DeliveryThread.UI)
     public void onTestEvent1UI(TestEvent1 event) {
         eventsUI.add(event);
+    }
+
+    @Subscribe(EventBus.DeliveryThread.BACKGROUND)
+    public void onTestEvent2Exception(TestEvent2 event) {
+        throw new RuntimeException("onTestEvent2Exception");
+    }
+
+    @Subscribe(EventBus.DeliveryThread.DISPATCHER)
+    public void onTestEvent3Exception(TestEvent3 event) {
+        throw new RuntimeException("onTestEvent3Exception");
     }
 
 }

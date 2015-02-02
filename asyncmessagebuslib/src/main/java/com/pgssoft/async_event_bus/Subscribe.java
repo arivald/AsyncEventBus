@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.pgssoft.asyncmessagebus;
+package com.pgssoft.async_event_bus;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -33,6 +33,6 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface Subscribe {
 
-    Bus.DeliveryThread value() default Bus.DeliveryThread.AS_REGISTERED;
+    EventBus.DeliveryThread value() default EventBus.DeliveryThread.AS_REGISTERED;
 
 }
