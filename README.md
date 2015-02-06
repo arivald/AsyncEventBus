@@ -5,15 +5,16 @@ An Guava-based event bus tailored for the Android.
 
 API and some code forked from the Google Guava.
 
-The Async Event Bus uses threads to offload work from UI thread - the most 
+The Async Event Bus uses threads to offload work from the UI thread - the most 
 important thread for Android applications. By default all events are 
-dispatched in one of background threads, then optionally delivered to subscribers 
+dispatched in one of the background thread, then optionally delivered to subscribers 
 in many different threads, according to subscriber needs. Yes, subscriber needs, 
 because subscriber can define which thread it will be called. 
 
-Because of asynchronous processing, posting event is very cheap for posting thread. 
-Also events can be easily used for cross-thread communication, ex. to deliver 
-results of background calculation or network query directly to UI thread.
+Because of asynchronous processing, posting an event is very cheap for 
+the posting thread. Also events can be easily used for cross-thread communication, 
+ex. to deliver the result of the background calculation or the network query 
+directly to the UI thread.
 
 
 License
