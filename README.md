@@ -1,4 +1,4 @@
-#Async Event Bus
+Ôªø#Async Event Bus
 =============================
 
 An Guava-based event bus with emphasis on the Android.
@@ -19,7 +19,7 @@ results of background calculation or network query directly to UI thread.
 License
 -------
 
-Copyright 2015 £ukasz P≥omiÒski
+Copyright 2015 ≈Åukasz P≈Çomi≈Ñski
 Copyright 2010 Google, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
