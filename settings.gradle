@@ -1,1 +1,1 @@
-include ':app', ':asyncmessagebuslib', ':asyncmessagebuslib'
+include ':async_event_bus_app', ':async_event_bus_lib'
