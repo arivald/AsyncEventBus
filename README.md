@@ -1,7 +1,7 @@
 #Async Event Bus
 =============================
 
-An Guava-based event bus with emphasis on the Android.
+An Guava-based event bus tailored for the Android.
 
 API and some code forked from the Google Guava.
 
