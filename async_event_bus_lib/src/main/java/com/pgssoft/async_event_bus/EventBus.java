@@ -356,6 +356,7 @@ public class EventBus {
      * Event passed to post() methods will be processed in this thread, then delivered in this thread,
      * or background thread, or UI thread.
      */
+    //todo use one shared dispatcher thread
     Handler mDispatcherThreadHandler;
 
     /**
